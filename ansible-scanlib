@@ -1,0 +1,55 @@
+#!/bin/sh
+
+# help
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    echo "Automatically link Ansible Roles and Collections"
+    echo "from /var/lib/ansible-extras/* to ~/.ansible/*"
+    exit 0
+fi
+
+# must run as normal user
+if [ "$(id -u)" = 0 ]; then
+    echo 'This script must be run as a normal user, not root!' >&2
+    exit 1
+fi
+
+PATH_ROLE="$HOME/.ansible/roles"
+PATH_COLL="$HOME/.ansible/collections/ansible_collections"
+ANSIBLE_SRC="/var/lib/ansible-extras"
+
+mkdir -p "$PATH_ROLE" "$PATH_COLL"
+
+# remove broken links
+find -L "$PATH_ROLE" -type l -exec unlink {} \;
+find -L "$PATH_COLL" -type l -exec unlink {} \;
+
+# add roles and collections
+for f in "$ANSIBLE_SRC"/*; do
+    [ -e "$f" ] || continue
+
+    CURRENT=$(basename "$f")
+
+    case $CURRENT in
+    *.*)
+        # role
+        PATH_DES="$PATH_ROLE/$CURRENT"
+        if [ ! -d "$PATH_DES" ]; then
+            echo "Linking Role $f --> $PATH_DES"
+            ln -s "$f" "$PATH_DES"
+        fi
+        ;;
+    *)
+        # collection
+        PATH_DES="$PATH_COLL/$CURRENT"
+        mkdir -p "$PATH_DES"
+        for g in "$ANSIBLE_SRC/$CURRENT/"*; do
+            [ -e "$g" ] || continue
+            SUBFOLDER=$(basename "$g")
+            if [ ! -d "$PATH_DES/$SUBFOLDER" ]; then
+                echo "Linking Collection $SUBFOLDER --> $PATH_DES/$SUBFOLDER"
+                ln -s "$g" "$PATH_DES/$SUBFOLDER"
+            fi
+        done
+        ;;
+    esac
+done
