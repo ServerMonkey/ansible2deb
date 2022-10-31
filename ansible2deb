@@ -2,33 +2,35 @@
 
 # help
 if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-    echo "Create a .deb package from an ansible role or collection."
-    echo "Maintainer parameter format:"
-    echo "  'Name Lastname <mail@example.com>'"
-    echo "Namespace variable format:"
-    echo "  'myusername.rolename'"
-    echo "ansible-role2deb <role,coll> <NAMESPACE> <MAINTAINER>"
-    exit 0
+	echo "Create a .deb package from an ansible role or collection."
+	echo "Maintainer parameter format:"
+	echo "  'Name Lastname <mail@example.com>'"
+	echo "Namespace variable format:"
+	echo "  'myusername.rolename'"
+	echo "ansible2deb <role,coll> <NAMESPACE> <MAINTAINER>"
+	echo "Example:"
+	echo "ansible2deb role hello.world 'Peter Miller <peter@example.com>'"
+	exit 0
 fi
 
 # must run as normal user
 if [ "$(id -u)" = 0 ]; then
-    echo 'This script must be run as a normal user, not root!' >&2
-    exit 1
+	echo 'This script must be run as a normal user, not root!' >&2
+	exit 1
 fi
 
 # args
 if [ -z "$1" ]; then
-    echo "Please enter a type: either 'role' or 'coll'" >&2
-    exit 1
+	echo "Please enter a type: either 'role' or 'coll'" >&2
+	exit 1
 fi
 if [ -z "$2" ]; then
-    echo "Please enter a role namespace like: myusername.rolename" >&2
-    exit 1
+	echo "Please enter a role namespace like: myusername.rolename" >&2
+	exit 1
 fi
 if [ -z "$3" ]; then
-    echo "Please enter the name and mail of the maintainer" >&2
-    exit 1
+	echo "Please enter the name and mail of the maintainer" >&2
+	exit 1
 fi
 ANSIBLE_TYPE="$1"
 NAMESPACE="$2"
@@ -36,13 +38,13 @@ MAINTAINER="$3"
 
 # select role or collection
 if [ "$ANSIBLE_TYPE" = "role" ]; then
-    PATH_SRC="$HOME/.ansible/roles/$NAMESPACE"
+	PATH_SRC="$HOME/.ansible/roles/$NAMESPACE"
 elif [ "$ANSIBLE_TYPE" = "coll" ]; then
-    NAMESPACE_COLL=$(echo "$NAMESPACE" | tr '.' '/')
-    PATH_SRC="$HOME/.ansible/collections/ansible_collections/$NAMESPACE_COLL"
+	NAMESPACE_COLL=$(echo "$NAMESPACE" | tr '.' '/')
+	PATH_SRC="$HOME/.ansible/collections/ansible_collections/$NAMESPACE_COLL"
 else
-    echo "Incorrect type, must be 'role' or 'coll'" >&2
-    exit 1
+	echo "Incorrect type, must be 'role' or 'coll'" >&2
+	exit 1
 fi
 
 # verify in and out path
@@ -50,32 +52,32 @@ PATH_OUT=$(pwd)
 echo "PATH_SRC: $PATH_SRC"
 echo "PATH_OUT: $PATH_OUT"
 if [ ! -d "$PATH_OUT" ]; then
-    echo "There is no folder like that" >&2
-    exit 1
+	echo "There is no folder like that" >&2
+	exit 1
 fi
 if [ ! -d "$PATH_SRC" ]; then
-    echo "There is no folder like that" >&2
-    exit 1
+	echo "There is no folder like that" >&2
+	exit 1
 fi
 
 # automatic increase minor version number whith each build
 VERSION_FILE="$PATH_SRC/version"
 # check if verison file exist
 if [ ! -f "$VERSION_FILE" ]; then
-    echo "There is no 'version' file"
-    exit 1
+	echo "There is no 'version' file"
+	exit 1
 fi
 VERSION_MAJOR=$(sed -n '1p' "$VERSION_FILE")
 VERSION_MINOR=$(sed -n '2p' "$VERSION_FILE")
 # check if variable is empty string
 if [ "$VERSION_MAJOR" = "" ]; then
-    echo "Major version number in file 'version' is empty"
-    exit 1
+	echo "Major version number in file 'version' is empty"
+	exit 1
 fi
 # check if variable is empty string
 if [ "$VERSION_MINOR" = "" ]; then
-    echo "Minor version number in file 'version' is empty"
-    exit 1
+	echo "Minor version number in file 'version' is empty"
+	exit 1
 fi
 
 VERSION_MINOR_NEW=$((1 + VERSION_MINOR))
@@ -83,17 +85,22 @@ sed -i "2 s/$VERSION_MINOR\$/$VERSION_MINOR_NEW/g" "$VERSION_FILE"
 VERSION="$VERSION_MAJOR.$VERSION_MINOR_NEW"
 
 # variables
+PATH_ANSIBLE="/usr/share/ansible"
+PATH_ROLES="$PATH_ANSIBLE/roles"
+PATH_COLL="$PATH_ANSIBLE/collections"
 NAMESPACE_DEB=$(echo "$NAMESPACE" | tr '.' '-' | tr '_' '-')
 NAME="ansible-$ANSIBLE_TYPE-$NAMESPACE_DEB"
 PATH_BASE="$PATH_OUT/$NAME-$VERSION"
 TARGET="DEBIAN"
 PATH_TARGET="$PATH_BASE/$TARGET"
-# different path for collection
+# different path for collection or role
 if [ "$ANSIBLE_TYPE" = "coll" ]; then
-    FIRST_FOLDER=$(echo "$NAMESPACE" | cut -d "." -f 1)
-    PATH_LIB="$PATH_BASE/var/lib/ansible-extras/$FIRST_FOLDER"
+	FIRST_FOLDER=$(echo "$NAMESPACE" | cut -d "." -f 1)
+	PATH_LIB="$PATH_BASE$PATH_COLL/$FIRST_FOLDER"
+	PATH_ZIP_SRC=$PATH_COLL
 else
-    PATH_LIB="$PATH_BASE/var/lib/ansible-extras"
+	PATH_LIB="$PATH_BASE$PATH_ROLES"
+	PATH_ZIP_SRC=$PATH_ROLES
 fi
 echo "NAME: $NAME"
 echo "PATH_BASE: $PATH_BASE"
@@ -107,7 +114,22 @@ rm -rf "$PATH_BASE"
 # copy relevant files from source to release
 echo "Copying relevant source files"
 mkdir -p "$PATH_LIB" || exit 1
-cp -rL "$PATH_SRC" "$PATH_LIB" || exit 1
+rsync -rLv --exclude=".*" "$PATH_SRC" "$PATH_LIB" || exit 1
+
+# add additional dependecies
+PKG_CFG="$PATH_SRC/ansible2deb.txt"
+if [ -f "$PKG_CFG" ]; then
+	echo "Parsing ansible2deb.txt config file"
+	EXTRA_DEPENDS=$(grep 'Depends:' "$PKG_CFG" | sed 's/Depends:/,/g')
+	if [ "$EXTRA_DEPENDS" = "" ]; then
+		echo "Failed to parse $PKG_CFG, 'Depends:' not found"
+		exit 1
+	else
+		echo "Extra dependecies: $EXTRA_DEPENDS"
+	fi
+else
+	EXTRA_DEPENDS=""
+fi
 
 # create Debian control file
 echo "Creating CONTROL file"
@@ -117,7 +139,7 @@ Version: $VERSION
 Section: net
 Priority: optional
 Architecture: all
-Depends: ansible
+Depends: ansible$EXTRA_DEPENDS
 Maintainer: $MAINTAINER
 Description: Ansible role
 " >"$PATH_TARGET/control"
@@ -128,7 +150,7 @@ fakeroot dpkg-deb --build "$PATH_BASE" || exit 1
 
 # pack source files
 echo "Packing source"
-cd "$PATH_BASE/var/lib/ansible-extras" || exit 1
+cd "$PATH_BASE$PATH_ZIP_SRC" || exit 1
 zip -q -r "$PATH_BASE.source.zip" .
 cd "$PATH_OUT" || exit 1
 wait

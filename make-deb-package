@@ -14,7 +14,7 @@ sed -i "2 s/$VERSION_MINOR\$/$VERSION_MINOR_NEW/g" $VERSION_FILE
 VERSION="$VERSION_MAJOR.$VERSION_MINOR_NEW"
 
 # variables
-NAME="ansible-role2deb"
+NAME="ansible2deb"
 RELEASES="releases"
 TARGET="DEBIAN"
 PATH_BASE="./$RELEASES/$NAME-$VERSION"
@@ -32,10 +32,10 @@ echo "Copying relevant source files"
 mkdir -p "$PATH_SHARE"
 cp -t "$PATH_SHARE" "README.md" "copyright" || exit 1
 mkdir -p "$PATH_BIN"
-chmod 0755 "ansible-role2deb"
-cp -t "$PATH_BIN" "ansible-role2deb" "ansible-scanlib" || exit 1
+chmod 0755 "$NAME"
+cp -t "$PATH_BIN" "$NAME" || exit 1
 
-# create Debian control file
+# create Debian control filescan
 echo "Creating CONTROL file"
 mkdir -p "$PATH_TARGET"
 echo "Package: $NAME
@@ -43,7 +43,7 @@ Version: $VERSION
 Section: net
 Priority: optional
 Architecture: all
-Depends: fakeroot (>= 1.25)
+Depends: fakeroot (>= 1.25), rsync (>=3.2)
 Maintainer: Bodo Endres <dev@muspekaren.se>
 Description: Create a .deb package from an ansible role or collection.
 " >"$PATH_TARGET/control"

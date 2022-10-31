@@ -1,8 +1,12 @@
-# ansible-role2deb
+# ansible2deb
 Create a .deb package from an ansible role or collection.
 
 Tested on Debian 11
 
 ### How to use
-`ansible-role2deb -h`  
-`ansible-scanlib -h`
+`ansible2deb -h`  
+
+To add additional APT dependencies to you ansible roles, create a file named 'ansible2deb.txt' in the base folder of your role or collection.  
+In that file add the same line, as you would att to a .deb control file.  
+For example this line:  
+`Depends: cowsay (>=3.03)`
