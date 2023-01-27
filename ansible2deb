@@ -120,7 +120,7 @@ rsync -rLv --exclude=".*" "$PATH_SRC" "$PATH_LIB" || exit 1
 PKG_CFG="$PATH_SRC/ansible2deb.txt"
 if [ -f "$PKG_CFG" ]; then
 	echo "Parsing ansible2deb.txt config file"
-	EXTRA_DEPENDS=$(grep 'Depends:' "$PKG_CFG" | sed 's/Depends:/,/g')
+	EXTRA_DEPENDS=$(grep "^Depends:" "$PKG_CFG" | sed 's/Depends:/,/g')
 	if [ "$EXTRA_DEPENDS" = "" ]; then
 		echo "Failed to parse $PKG_CFG, 'Depends:' not found"
 		exit 1
