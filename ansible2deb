@@ -141,7 +141,7 @@ Priority: optional
 Architecture: all
 Depends: ansible$EXTRA_DEPENDS
 Maintainer: $MAINTAINER
-Description: Ansible role
+Description: Ansible $ANSIBLE_TYPE
 " >"$PATH_TARGET/control"
 
 # build
