@@ -1,16 +1,12 @@
 #!/bin/sh
+# shellcheck disable=SC2039
+
+set -e
 
 # help
 if [ -z "$1" ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
-	echo "Create a .deb package from an ansible role or collection."
-	echo "Maintainer parameter format:"
-	echo "  'Name Lastname <mail@example.com>'"
-	echo "Namespace variable format:"
-	echo "  'myusername.rolename'"
-	echo "ansible2deb <role,coll> <NAMESPACE> <MAINTAINER>"
-	echo "Example:"
-	echo "ansible2deb role hello.world 'Peter Miller <peter@example.com>'"
-	exit 0
+	man ansible2deb.1 || ronn -r <README.md | man -l -
+	exit
 fi
 
 # must run as normal user
@@ -35,66 +31,143 @@ fi
 ANSIBLE_TYPE="$1"
 NAMESPACE="$2"
 MAINTAINER="$3"
+KEEPVERSION="$4"
 
-# select role or collection
-if [ "$ANSIBLE_TYPE" = "role" ]; then
-	PATH_SRC="$HOME/.ansible/roles/$NAMESPACE"
-elif [ "$ANSIBLE_TYPE" = "coll" ]; then
-	NAMESPACE_COLL=$(echo "$NAMESPACE" | tr '.' '/')
-	PATH_SRC="$HOME/.ansible/collections/ansible_collections/$NAMESPACE_COLL"
-else
-	echo "Incorrect type, must be 'role' or 'coll'" >&2
+error() {
+	echo "Error: $1" >&2
 	exit 1
-fi
+}
 
-# verify in and out path
+get_section() {
+	local SEARCH
+	local FILE
+
+	SEARCH="$1"
+	FILE="$2"
+
+	# print after pattern ': '
+	grep "^$SEARCH:" "$FILE" | awk -F ': ' '{print $2}' || exit 1
+}
+
+# verify out path
 PATH_OUT=$(pwd)
-echo "PATH_SRC: $PATH_SRC"
 echo "PATH_OUT: $PATH_OUT"
 if [ ! -d "$PATH_OUT" ]; then
-	echo "There is no folder like that" >&2
-	exit 1
+	error "There is no folder like that"
 fi
+
+# select from role or collection
+case "$ANSIBLE_TYPE" in
+coll)
+	ANSIBLE_TYPE="coll"
+	NAMESPACE_COLL=$(echo "$NAMESPACE" | tr '.' '/')
+	PATH_SRC="$HOME/.ansible/collections/ansible_collections/$NAMESPACE_COLL"
+	;;
+role)
+	ANSIBLE_TYPE="role"
+	PATH_SRC="$HOME/.ansible/roles/$NAMESPACE"
+	;;
+*)
+	error "ANSIBLE_TYPE is set to an invalid value"
+	;;
+esac
+
+# verify
 if [ ! -d "$PATH_SRC" ]; then
-	echo "There is no folder like that" >&2
-	exit 1
+	error "Source folder not found in $PATH_SRC"
+fi
+PKG_CFG="$PATH_SRC/pkg.txt"
+if [ ! -f "$PKG_CFG" ]; then
+	error "pkg.txt not found in $PATH_SRC"
 fi
 
-# automatic increase minor version number whith each build
-VERSION_FILE="$PATH_SRC/version"
-# check if verison file exist
-if [ ! -f "$VERSION_FILE" ]; then
-	echo "There is no 'version' file"
-	exit 1
-fi
-VERSION_MAJOR=$(sed -n '1p' "$VERSION_FILE")
-VERSION_MINOR=$(sed -n '2p' "$VERSION_FILE")
-# check if variable is empty string
-if [ "$VERSION_MAJOR" = "" ]; then
-	echo "Major version number in file 'version' is empty"
-	exit 1
-fi
-# check if variable is empty string
-if [ "$VERSION_MINOR" = "" ]; then
-	echo "Minor version number in file 'version' is empty"
-	exit 1
+# load variables
+DEPENDS=$(get_section "Depends" "$PKG_CFG") || DEPENDS=""
+VERSION_OLD=$(get_section "Version" "$PKG_CFG") ||
+	error "empty variable VERSION"
+ANSIBLE_SECTION=$(get_section "Ansible-Section" "$PKG_CFG") ||
+	error "empty variable ANSIBLE-SECTION"
+DESCRIPTION=$(get_section "Description" "$PKG_CFG") ||
+	error "empty variable DESCRIPTION"
+
+echo "DEPENDS: $DEPENDS"
+echo "VERSION_OLD: $VERSION_OLD"
+echo "ANSIBLE_SECTION: $ANSIBLE_SECTION"
+echo "DESCRIPTION: $DESCRIPTION"
+
+# add extra comma to DEPENDS
+if [ "$DEPENDS" != "" ]; then
+	DEPENDS=", $DEPENDS"
+else
+	echo "No dependencies found"
 fi
 
-VERSION_MINOR_NEW=$((1 + VERSION_MINOR))
-sed -i "2 s/$VERSION_MINOR\$/$VERSION_MINOR_NEW/g" "$VERSION_FILE"
-VERSION="$VERSION_MAJOR.$VERSION_MINOR_NEW"
+# select role or collection
+case "$ANSIBLE_SECTION" in
+galaxy-playbooks | galaxy-role)
+	BUILD_SECTION="coll"
+	DESCRIPTION_EXT="Subsection $ANSIBLE_SECTION"
+	;;
+role | role-tasks | scripts)
+	BUILD_SECTION="role"
+	DESCRIPTION_EXT="Subsection $ANSIBLE_SECTION"
+	;;
+"")
+	BUILD_SECTION="$ANSIBLE_TYPE"
+	DESCRIPTION_EXT="no subsection"
+	;;
+*)
+	error "BUILD_SECTION is set to an invalid value"
+	;;
+esac
+
+# automatically increase version number
+if [ "$KEEPVERSION" = "-k" ]; then
+	echo "Keeping version number"
+	VERSION="$VERSION_OLD"
+elif [ "$KEEPVERSION" = "" ]; then
+	echo "Increasing version number"
+	# split the version number by a dot
+	VERSION_MAJOR=$(echo "$VERSION_OLD" | cut -d "." -f 1)
+	VERSION_MINOR=$(echo "$VERSION_OLD" | cut -d "." -f 2)
+	VERSION_SECUR=$(echo "$VERSION_OLD" | cut -d "." -f 3)
+
+	# check if variable is empty string
+	if [ "$VERSION_MAJOR" = "" ]; then
+		error "Major version number in file 'version' is empty"
+	fi
+	# check if variable is empty string
+	if [ "$VERSION_MINOR" = "" ]; then
+		error "Minor version number in file 'version' is empty"
+	fi
+
+	# increase minor version number whith each build
+	VERSION_MINOR_NEW=$((1 + VERSION_MINOR))
+	if [ "$VERSION_SECUR" = "" ]; then
+		VERSION="$VERSION_MAJOR.$VERSION_MINOR_NEW"
+	else
+		VERSION="$VERSION_MAJOR.$VERSION_MINOR_NEW.$VERSION_SECUR"
+	fi
+	# substitute VERSION_OLD with VERSION in file 'pkg.txt'
+	sed -i "s/Version: $VERSION_OLD/Version: $VERSION/" "$PKG_CFG"
+	#sed -i "2 s/ion: $VERSION_OLD\$/ion: $VERSION/g" "$PKG_CFG"
+# if KEEPVERSION is set to an invalid value
+else
+	error "KEEPVERSION argument is set to an invalid value"
+fi
+echo "VERSION: $VERSION"
 
 # variables
 PATH_ANSIBLE="/usr/share/ansible"
 PATH_ROLES="$PATH_ANSIBLE/roles"
 PATH_COLL="$PATH_ANSIBLE/collections"
 NAMESPACE_DEB=$(echo "$NAMESPACE" | tr '.' '-' | tr '_' '-')
-NAME="ansible-$ANSIBLE_TYPE-$NAMESPACE_DEB"
+NAME="ansible-$BUILD_SECTION-$NAMESPACE_DEB"
 PATH_BASE="$PATH_OUT/$NAME-$VERSION"
 TARGET="DEBIAN"
 PATH_TARGET="$PATH_BASE/$TARGET"
 # different path for collection or role
-if [ "$ANSIBLE_TYPE" = "coll" ]; then
+if [ "$BUILD_SECTION" = "coll" ]; then
 	FIRST_FOLDER=$(echo "$NAMESPACE" | cut -d "." -f 1)
 	PATH_LIB="$PATH_BASE$PATH_COLL/$FIRST_FOLDER"
 	PATH_ZIP_SRC=$PATH_COLL
@@ -102,6 +175,13 @@ else
 	PATH_LIB="$PATH_BASE$PATH_ROLES"
 	PATH_ZIP_SRC=$PATH_ROLES
 fi
+# extended description
+if [ "$BUILD_SECTION" = "coll" ]; then
+	DESCRIPTION_PRE="Collection"
+else
+	DESCRIPTION_PRE="Role"
+fi
+
 echo "NAME: $NAME"
 echo "PATH_BASE: $PATH_BASE"
 echo "PATH_TARGET: $PATH_TARGET"
@@ -113,51 +193,38 @@ rm -rf "$PATH_BASE"
 
 # copy relevant files from source to release
 echo "Copying relevant source files"
-mkdir -p "$PATH_LIB" || exit 1
+mkdir -p "$PATH_LIB" || error "Failed to create $PATH_LIB"
 rsync -rLv --exclude=".*" "$PATH_SRC" "$PATH_LIB" || exit 1
-
-# add additional dependecies
-PKG_CFG="$PATH_SRC/ansible2deb.txt"
-if [ -f "$PKG_CFG" ]; then
-	echo "Parsing ansible2deb.txt config file"
-	EXTRA_DEPENDS=$(grep "^Depends:" "$PKG_CFG" | sed 's/Depends:/,/g')
-	if [ "$EXTRA_DEPENDS" = "" ]; then
-		echo "Failed to parse $PKG_CFG, 'Depends:' not found"
-		exit 1
-	else
-		echo "Extra dependecies: $EXTRA_DEPENDS"
-	fi
-else
-	EXTRA_DEPENDS=""
-fi
 
 # create Debian control file
 echo "Creating CONTROL file"
-mkdir -p "$PATH_TARGET" || exit 1
+mkdir -p "$PATH_TARGET" || error "Failed to create $PATH_TARGET"
 echo "Package: $NAME
 Version: $VERSION
 Section: net
 Priority: optional
 Architecture: all
-Depends: ansible$EXTRA_DEPENDS
+Depends: ansible$DEPENDS
 Maintainer: $MAINTAINER
-Description: Ansible $ANSIBLE_TYPE
+Description: Ansible $DESCRIPTION_PRE - $DESCRIPTION
+ $DESCRIPTION_EXT
 " >"$PATH_TARGET/control"
 
 # build
 echo "Building"
-fakeroot dpkg-deb --build "$PATH_BASE" || exit 1
+fakeroot dpkg-deb --build "$PATH_BASE" || error "Failed to build"
 
 # pack source files
 echo "Packing source"
-cd "$PATH_BASE$PATH_ZIP_SRC" || exit 1
+cd "$PATH_BASE$PATH_ZIP_SRC" || error "Failed to change directory"
 zip -q -r "$PATH_BASE.source.zip" .
-cd "$PATH_OUT" || exit 1
-wait
+cd "$PATH_OUT" || error "Failed to change directory"
 
 # replace latest version
-cp -f "$PATH_BASE.deb" "$PATH_OUT/$NAME-LATEST.deb"
-cp -f "$PATH_BASE.source.zip" "$PATH_OUT/$NAME-LATEST-source.zip"
+ln -sf "$NAME-$VERSION.deb" "$NAME-LATEST.deb" ||
+	error "Failed to create symlink"
+ln -sf "$NAME-$VERSION.source.zip" "$NAME-LATEST.source.zip" ||
+	error "Failed to create symlink"
 
 # clean up
 echo "Clean up"
