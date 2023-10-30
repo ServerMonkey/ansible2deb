@@ -35,12 +35,12 @@ To that file, add variable lines similar to a .deb 'control' file.
 
 The following variables are supported:
 
-`Version:` Same as Debian control file
-`Depends:` Same as Debian control file, 'ansible' will be added automatically
-`Description:` Same as Debian control file
+`Version:` Same as Debian control file  
+`Depends:` Same as Debian control file, 'ansible' will be added automatically  
+`Description:` Same as Debian control file  
 `Ansible-Section:` Marks the package as certain role or collection. Can be
 used by other applications to define how the package is used. See below.  
-You have to choose what kind of subcategory the package is.
+You have to choose what kind of section (subcategory) the package is.
 
 Ansible-Section can be one of the following:
 
@@ -67,12 +67,10 @@ The file pkg.txt itself will be packaged as well. Parse the section
 
 Create the file `~/.ansible/roles/my.cowapp/pkg.txt` with the following:
 
-```
-Version: 1.2.3
-Ansible-Section: tasks-from-roles
-Depends: cowsay (>=3.0), dict
-Description: Ansible role to print random text with cowsay
-```
+    Version: 1.2.3
+    Ansible-Section: tasks-from-roles
+    Depends: cowsay (>=3.0), dict
+    Description: Ansible role to print random text with cowsay
 
 Then build the package with:
 
